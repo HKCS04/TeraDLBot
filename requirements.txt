@@ -10,3 +10,4 @@ pillow
 hachoir
 requests
 redis
+pyromod==1.5
