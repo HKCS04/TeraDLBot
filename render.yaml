@@ -1,7 +1,7 @@
 services:
   # A Docker web service
   - type: web
-    name: refactored-telegram
+    name: TeraboxDLBot
     env: python
     startCommand: python3 -m bot.py
     buildCommand: pip3 install -U -r requirements.txt
