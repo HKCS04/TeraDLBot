@@ -1,3 +1,5 @@
+pyrogram
+tgcrypto
 telethon
 cryptg
 pyaes
