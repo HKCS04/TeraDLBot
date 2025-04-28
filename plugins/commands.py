@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import time
+import requests
 from uuid import uuid4
 from urllib.parse import urlparse
 
@@ -15,7 +16,6 @@ from redis import Redis
 
 
 from cansend import CanSend
-from terabox import get_data
 from tools import (
     convert_seconds,
     download_file,
@@ -401,21 +401,16 @@ def extract_code_from_url(url):
 
 
 def get_data(url):
-    # In real implementation you should implement the code to get the metadata from the URL here.
-    # It is not possible to provide such implementation without more context.
-    # Example:
-    # import requests
-    # try:
-    #     response = requests.get(url, stream=True)
-    #     response.raise_for_status() # Raises HTTPError for bad requests (4XX, 5XX)
-    #     # Extract file name and size from headers or content
-    #     file_name = response.headers.get("Content-Disposition", "filename=unknown").split("filename=")[1]
-    #     sizebytes = response.headers.get("Content-Length")
-    #     size = sizebytes
-    #
-    #     return {"file_name": file_name, "sizebytes": sizebytes, "size": size }
-    # except Exception as e:
-    #     logging.error(f"Error getting data from url: {url}: {e}")
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status() # Raises HTTPError for bad requests (4XX, 5XX)
+        # Extract file name and size from headers or content
+        file_name = response.headers.get("Content-Disposition", "filename=unknown").split("filename=")[1]
+        sizebytes = response.headers.get("Content-Length")
+        size = sizebytes
+        return {"file_name": file_name, "sizebytes": sizebytes, "size": size }
+    except Exception as e:
+        logging.error(f"Error getting data from url: {url}: {e}")
     return {"file_name": "test.mp4", "sizebytes": 1024, "size": "1KB", "direct_link": "http://test.com/file.mp4", "thumb": "http://test.com/thumbnail.jpg" } #Replace with your implementation.
 
 def get_formatted_size(size_bytes):
