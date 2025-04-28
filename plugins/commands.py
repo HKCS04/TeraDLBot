@@ -404,7 +404,7 @@ MAX_FILE_SIZE = 4294967296
 COOKIE = """browserid=ECp8myR7LciVVyrKxhjseu5DsPlsBGfcO2llDtQXqlF9ol1xSxrOyu-zQOo=; __bid_n=18de05eca9a9ef426f4207; _ga=GA1.1.993333438.1714196932; ndus=Ye4ozFx5eHuiHedfAOmdECQ1cUYjXwfZF6VF4QbD; TSID=JmuRgIKcaPqMjlzvZE5wXOJD96SkO594; PANWEB=1; csrfToken=8nN5Q8Y5H71nPyC8NHxBYAcr; lang=en; __bid_n=18de05eca9a9ef426f4207; ndut_fmt=A66A9E7BD20D40C268FB5C44A4E512FB76288B038CE8454BBB5B6BA0DB474814; ab_sr=1.0.1_OWVhNGFjZjk2MTJjMjE4MWViNzJhZDZhYTFmYzc4YmU3YmM4YmE2YzM4OTlkNGFiYTgwMTU5YjExYzVkMmYyOWU3NjQ2MGY4OGU2NWFlN2VhMDVhM2EzMGFlNmVlY2YzODY4YWNlNTdiYzdkODllZGQyNzRmODFiMmYxMTA2NGQyYWM2NGQxN2UxNDA3YzlhMDZkNDJiNWE4YmM5NTkxOA==; ab_ymg_result={"data":"97e606d2561336895e6c204c4cefdda3f92fcb3da76591b45dff12f3686fa1cad214e650165788b6b308134b9d9630b87d3b7b925e4d6eff5c376d2a0616a7d075d125397d73a7d649719f13489133194f2afd96fe712df4def2120f7e123df403d77144b1fb1f7ef9cd2b2c34feda576a824304a7c66bc9bbf9482618a92b59","key_id":"66","sign":"a8e92f31"}; _ga_06ZNKL8C2E=GS1.1.1714281215.2.0.1714281219.56.0.0"""
 
 # Define /info and /id commands to display user information
-@Client.on(filters.command(["info"]) & filters.private)
+@Client.on_message(filters.command(["info"]) & filters.private)
 async def user_info(client: Client, message: Message):
     try:
         user_id = message.from_user.id
@@ -418,7 +418,7 @@ async def user_info(client: Client, message: Message):
         await message.reply_text("An error occurred while processing your request.")
 
 
-@Client.on(filters.command(["help"]) & filters.private)
+@Client.on_message(filters.command(["help"]) & filters.private)
 async def command_help(client: Client, message: Message):
     help_text = """
 ┏━━━━━━━━━━⍟
@@ -442,7 +442,7 @@ For premium contact @YadhuTG
     )
 
 
-@Client.on(filters.command("ping"))
+@Client.on_message(filters.command("ping"))
 async def ping_pong(client: Client, message: Message):
     start_time = time.time()
     msg = await message.reply_text("🖥️ Connection Status\nCommand: `/ping`\nResponse Time: Calculating...")
@@ -525,7 +525,7 @@ async def broadcast_message(client: Client, m: Message):
         logging.exception(f"Error sending broadcast message: {e}")
         await m.reply_text("An error occurred while sending the broadcast message.")
 
-@Client.on(filters.command("start") & filters.private)
+@Client.on_message(filters.command("start") & filters.private)
 async def start(client: Client, message: Message):
     user_id = message.from_user.id
     try:
@@ -585,7 +585,7 @@ For subscription inquiries, contact @abdul97233.
         print(f"Error in start command: {e}")
         await message.reply_text("An error occurred. Please try again later.")
 # Handler for when a user joins the chat
-@Client.on(filters.chat_member_updated)  # Use chat_member_updated filter
+@Client.on_message(filters.chat_member_updated)  # Use chat_member_updated filter
 async def user_joined(client: Client, message):
     if message.new_chat_member and message.new_chat_member.status in ["member", "administrator", "creator"]:
         user_id = message.new_chat_member.user.id
@@ -603,7 +603,7 @@ async def user_joined(client: Client, message):
         except Exception as e:
             print(f"Error in user_joined: {e}")
 
-@Client.on(filters.command("remove") & filters.user(ADMINS) & filters.private) # Added private
+@Client.on_message(filters.command("remove") & filters.user(ADMINS) & filters.private) # Added private
 async def remove(client: Client, message: Message):
     try:
         user_id = message.text.split(None, 1)[1]  # Get user ID from command
@@ -619,7 +619,7 @@ async def remove(client: Client, message: Message):
         await message.reply_text("An error occurred while removing the user.")
 
 # Define /plan command to display premium plans and payment methods
-@Client.on(filters.command("plan") & filters.private)
+@Client.on_message(filters.command("plan") & filters.private)
 async def display_plan(client: Client, message: Message):
     plan_text = """
 ┏━━━━━━━━━━⍟
@@ -646,7 +646,7 @@ To purchase premium, send a message to @Abdul97233.
 """
     await message.reply_text(plan_text, parse_mode="markdown")
 # Define premium user promotion command
-@Client.on(filters.command("pre") & filters.user(ADMINS) & filters.private)
+@Client.on_message(filters.command("pre") & filters.user(ADMINS) & filters.private)
 async def pre(client: Client, message: Message):
     try:
         user_id = message.text.split(None, 1)[1]
@@ -662,7 +662,7 @@ async def pre(client: Client, message: Message):
         await message.reply_text("An error occurred while promoting the user.")
 
 # Command to check all premium users with name, username, and user ID
-@Client.on(filters.command("premium_users") & filters.user(ADMINS) & filters.private)
+@Client.on_message(filters.command("premium_users") & filters.user(ADMINS) & filters.private)
 async def premium_users(client: Client, message: Message):
     premium_users = db.smembers(PREMIUM_USERS_KEY)
     if premium_users:
@@ -682,14 +682,14 @@ async def premium_users(client: Client, message: Message):
         await message.reply_text("No premium users found.")
 
 # Command to directly demote all premium users
-@Client.on(filters.command("demote_all_premium") & filters.user(ADMINS) & filters.private)
+@Client.on_message(filters.command("demote_all_premium") & filters.user(ADMINS) & filters.private)
 async def demote_all_premium(client: Client, message: Message):
     db.delete(PREMIUM_USERS_KEY)
     await message.reply_text("All premium users demoted successfully.")
 
 
 # Define premium user demotion command
-@Client.on(filters.command("de") & filters.user(ADMINS) & filters.private)
+@Client.on_message(filters.command("de") & filters.user(ADMINS) & filters.private)
 async def de(client: Client, message: Message):
     try:
         user_id = message.text.split(None, 1)[1]
