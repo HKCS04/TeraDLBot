@@ -584,24 +584,6 @@ For subscription inquiries, contact @abdul97233.
     except Exception as e:
         print(f"Error in start command: {e}")
         await message.reply_text("An error occurred. Please try again later.")
-# Handler for when a user joins the chat
-@Client.on_message(filters.chat_member_updated)  # Use chat_member_updated filter
-async def user_joined(client: Client, message):
-    if message.new_chat_member and message.new_chat_member.status in ["member", "administrator", "creator"]:
-        user_id = message.new_chat_member.user.id
-        try:
-            user = await client.get_users(user_id)
-            name = user.first_name
-            username = user.username if user.username else "-"
-            
-            admin_message = f"User joined the bot:\nName: {name}\nUsername: @{username}\nUser ID: {user_id}"
-            for admin_id in ADMINS:
-                try:
-                    await client.send_message(admin_id, admin_message)
-                except Exception as e:
-                    print(f"Error sending admin message to {admin_id}: {e}")
-        except Exception as e:
-            print(f"Error in user_joined: {e}")
 
 @Client.on_message(filters.command("remove") & filters.user(ADMINS) & filters.private) # Added private
 async def remove(client: Client, message: Message):
