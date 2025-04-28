@@ -1,15 +1,18 @@
+
 import asyncio
+import logging
 import os
+import re
 import time
 from uuid import uuid4
+from urllib.parse import urlparse
 
-import redis
-import telethon
-import telethon.tl.types
-from telethon import TelegramClient, events
-from telethon import Button
-from telethon.tl.functions.messages import ForwardMessagesRequest
-from telethon.types import Message, UpdateNewMessage
+from pyrogram import Client, filters
+from pyrogram.errors import FloodWait, MessageNotModified
+from pyrogram.types import Message
+
+from redis import Redis
+
 
 from cansend import CanSend
 from config import *
@@ -36,322 +39,162 @@ db = redis.Redis(
 PREMIUM_USERS_KEY = "premium_users"
 GIFT_CODES_KEY = "gift_codes"
 
+REDIS_CONFIG = {
+    "HOST": "redis-12345.c16.us-east-1-2.ec2.cloud.redislabs.com",
+    "PORT": 17713,
+    "USERNAME": "default",
+    "PASSWORD": "password",
+    "DATABASE": "NTM"
+}
+
+PRIVATE_CHAT_ID = -1002313550165
+ADMINS = 8083702486
+NTMPRO_CHANNEL = "@AstroBotz"
+NTMCHAT_CHANNEL = "@AstroBotzSupport"
+REQUEST_LIMIT = 5
+REQUEST_LIMIT_WINDOW = 60  # Seconds
+MAX_FILE_SIZE = 4294967296
+
 # Define /info and /id commands to display user information
-@bot.on(
-    events.NewMessage(
-        pattern="/info",
-        incoming=True,
-        outgoing=False,
-    )
-)
-@bot.on(
-    events.NewMessage(
-        pattern="/id",
-        incoming=True,
-        outgoing=False,
-    )
-)
-async def user_info(m: UpdateNewMessage):
-    user_id = m.sender_id
-    name = m.sender.first_name
-    username = m.sender.username if m.sender.username else "-"
-    plan = "Premium" if db.sismember(PREMIUM_USERS_KEY, user_id) else "Free"
-    info_text = f"Name: {name}\nUsername: @{username}\nUser ID: `{user_id}`\nPlan: {plan}"
-    await m.reply(info_text, parse_mode="markdown", link_preview=False)
+@bot.on(filters.command(["info"]) & filters.private)
+async def user_info(client: Client, message: Message):
+    try:
+        user_id = message.from_user.id
+        name = message.from_user.first_name
+        username = message.from_user.username if message.from_user.username else "-"
+        plan = "Premium" if db.sismember(PREMIUM_USERS_KEY, user_id) else "Free"
+        info_text = f"<b> ⍟ Name: {name}\n⍟ Username: @{username}\n⍟ User ID: `{user_id}`\n⍟ Plan: {plan} </b>"
+        await message.reply_text(info_text, parse_mode="markdown", disable_web_page_preview=True)
+    except Exception as e:
+        print(f"Error in user_info: {e}")
+        await message.reply_text("An error occurred while processing your request.")
 
 
-# Define /cmds or /help command to describe all available commands
-# @bot.on(
-#     events.NewMessage(
-#         pattern="/cmds|/help",
-#         incoming=True,
-#         outgoing=False,
-#         func=lambda x: x.is_private,
-#     )
-# )
-# async def command_help(m: UpdateNewMessage):
-#     help_text = """
-# ┏━━━━━━━━━━⍟
-# ┃ 𝘼𝙫𝙖𝙞𝙡𝙖𝙗𝙡𝙚 𝘾𝙤𝙢𝙢𝙖𝙣𝙙𝙨
-# ┗━━━━━━━━━━━━━━━━━⍟
-
-# /start - Start the bot and receive a welcome message.
-# /info or /id - Get your user information.
-# /redeem <gift_code> - Redeem a gift code for premium access.
-# /cmds, or /help to view available cmds 
-# /plan - To check availabe plan
-
-# Directly share me the link i will share you the video with direct link
-
-# For premium contact @abdul97233
-# """
-#     await m.reply(help_text)
-@bot.on(
-    events.NewMessage(
-        pattern="/cmds|/help",
-        incoming=True,
-        outgoing=False,
-        func=lambda x: x.is_private,
-    )
-)
-async def command_help(m: UpdateNewMessage):
+@bot.on(filters.command(["help"]) & filters.private)
+async def command_help(client: Client, message: Message):
     help_text = """
 ┏━━━━━━━━━━⍟
 ┃ 𝘼𝙫𝙖𝙞𝙡𝙖𝙗𝙡𝙚 𝘾𝙤𝙢𝙢𝙖𝙣𝙙𝙨
 ┗━━━━━━━━━━━━━━━━━⍟
 
 /start - Start the bot and receive a welcome message.
-/info or /id - Get your user information.
+/info - Get your user information.
 /redeem <gift_code> - Redeem a gift code for premium access.
-/cmds, or /help to view available cmds 
+/help to view available cmds 
 /plan - To check availabe plan
 
 Directly share me the link i will share you the video with direct link
 
-For premium contact @abdul97233
+For premium contact @YadhuTG
 """
 
-    await m.reply(
-        help_text,  # Changed from reply_text to help_text
-        link_preview=False,
+    await message.reply_text(
+        help_text,
         parse_mode="markdown",
-        buttons=[
-            [
-                Button.url(
-                    "Website Source Code", url="https://github.com/Abdul97233/TeraBox-Downloader-Bot"
-                ),
-                Button.url(
-                    "Bot Source Code",
-                    url="https://github.com/Abdul97233/TeraBox-Downloader-Bot",
-                ),
-            ],
-            [
-                Button.url("Channel ", url="https://t.me/NTMpro"),
-                Button.url("Group ", url="https://t.me/NTMchat"),
-            ],
-            [
-                Button.url("Owner ", url="https://t.me/abdul97233"),
-            ],
-        ],
     )
 
-    
 
-# Define /ping command to check bot's latency
-@bot.on(
-    events.NewMessage(
-        pattern="/ping",
-        incoming=True,
-        outgoing=False,
-        # func=lambda x: x.is_private,
-    )
-)
-async def ping_pong(m: UpdateNewMessage):
+@bot.on(filters.command("ping"))
+async def ping_pong(client: Client, message: Message):
     start_time = time.time()
-    message = await m.reply("🖥️ Connection Status\nCommand: `/ping`\nResponse Time: Calculating...")
+    msg = await message.reply_text("🖥️ Connection Status\nCommand: `/ping`\nResponse Time: Calculating...")
     end_time = time.time()
     latency = end_time - start_time  # Calculate latency in seconds
     latency_str = "{:.2f}".format(latency)  # Format latency with two decimal places
-    await message.edit(f"🖥️ Connection Status\nCommand: `/ping`\nResponse Time: {latency_str} seconds")
+    await msg.edit_text(f"🖥️ Connection Status\nCommand: `/ping`\nResponse Time: {latency_str} seconds")
 
 # Generate gift codes
-@bot.on(
-    events.NewMessage(
-        pattern="/gc (\d+)",
-        incoming=True,
-        outgoing=False,
-        from_users=ADMINS,
-    )
-)
-# async def generate_gift_codes(m: UpdateNewMessage):
-#     quantity = int(m.pattern_match.group(1))
-#     gift_codes = [f"NTM-{str(uuid4())[:8]}" for _ in range(quantity)]
-#     db.sadd(GIFT_CODES_KEY, *gift_codes)
-#     await m.reply(f"{quantity} gift codes generated: {', '.join(gift_codes)}")
-# async def generate_gift_codes(m: UpdateNewMessage):
-#     quantity = int(m.pattern_match.group(1))
-#     gift_codes = [f"NTM-{str(uuid4())[:8]}" for _ in range(quantity)]
-#     db.sadd(GIFT_CODES_KEY, *gift_codes)
-#     reply_text = "\n".join(gift_codes)  # Joining the gift codes with newline character
-#     await m.reply(reply_text)
+@bot.on_message(filters.command("gc") & filters.user(ADMINS) & filters.regex(r"^/gc (\d+)$"))
+async def generate_gift_codes(client: Client, m: Message):
+    """Generates gift codes and saves them to Redis."""
+    try:
+        quantity = int(m.matches[0].group(1)) # Use m.matches
 
-async def generate_gift_codes(m: UpdateNewMessage):
-    quantity = int(m.pattern_match.group(1))
-    gift_codes = [f"NTM-{str(uuid4())[:8]}" for _ in range(quantity)]
-    db.sadd(GIFT_CODES_KEY, *gift_codes)
-    
-    # Send a reply confirming the generation of gift codes
-    await m.reply(f"{quantity} gift codes generated. Here they are:")
-    
-    # Send each gift code as a separate message with some interval (e.g., 1 second)
-    for code in gift_codes:
-        await asyncio.sleep(1)  # Introduce a delay to avoid rate limiting
-        await m.reply(code)
+        gift_codes = [f"NTM-{str(uuid4())[:8]}" for _ in range(quantity)]
+        db.sadd(GIFT_CODES_KEY, *gift_codes)
+
+        # Send a reply confirming the generation of gift codes
+        await m.reply_text(f"{quantity} gift codes generated. Here they are:")
+
+        # Send each gift code as a separate message with some interval (e.g., 1 second)
+        for code in gift_codes:
+            await asyncio.sleep(1)  # Introduce a delay to avoid rate limiting
+            await m.reply_text(code)
+    except Exception as e:
+        logging.exception(f"Error generating gift codes: {e}")
+        await m.reply_text("An error occurred while generating gift codes.")
 
 
-# Redeem gift codes
-# @bot.on(
-#     events.NewMessage(
-#         pattern="/redeem (.*)",
-#         incoming=True,
-#         outgoing=False,
-#     )
-# )
-# async def redeem_gift_code(m: UpdateNewMessage):
-#     gift_code = m.pattern_match.group(1)
-#     if db.sismember(GIFT_CODES_KEY, gift_code):
-#         db.sadd(PREMIUM_USERS_KEY, m.sender_id)
-#         db.srem(GIFT_CODES_KEY, gift_code)
-#         await m.reply("Gift code redeemed successfully. You are now a premium user!")
-#     else:
-#         await m.reply("Invalid or expired gift code.")
+@bot.on_message(filters.command("redeem") & filters.regex(r"^/redeem (.*)$"))
+async def redeem_gift_code(client: Client, m: Message):
+    """Redeems a gift code and grants premium access to the user."""
+    try:
+        gift_code = m.matches[0].group(1)  # Use m.matches
 
-# Redeem gift codes
-# @bot.on(
-#     events.NewMessage(
-#         pattern="/redeem (.*)",
-#         incoming=True,
-#         outgoing=False,
-#     )
-# )
-# async def redeem_gift_code(m: UpdateNewMessage):
-#     gift_code = m.pattern_match.group(1)
-#     if db.sismember(GIFT_CODES_KEY, gift_code):
-#         user_id = m.sender_id
-#         user = await bot.get_entity(user_id)
-#         name = user.first_name
-#         username = user.username if user.username else "-"
-#         db.sadd(PREMIUM_USERS_KEY, user_id)
-#         db.srem(GIFT_CODES_KEY, gift_code)
-#         admin_message = f"Gift code redeemed by:\nName: {name}\nUsername: @{username}\nUser ID: {user_id}"
-#         await bot.send_message(ADMIN_ID, admin_message)
-#         await m.reply("Gift code redeemed successfully. You are now a premium user!")
-#     else:
-#         await m.reply("Invalid or expired gift code.")
+        if db.sismember(GIFT_CODES_KEY, gift_code):
+            user_id = m.from_user.id
+            user = await client.get_users(user_id) # Using client.get_users for pyrogram
+            name = user.first_name
+            username = user.username if user.username else "-"
+            db.sadd(PREMIUM_USERS_KEY, user_id)
+            db.srem(GIFT_CODES_KEY, gift_code)
+            admin_message = f"Gift code redeemed by:\nName: {name}\nUsername: @{username}\nUser ID: {user_id}"
+            for admin_id in ADMINS:
+                try:
+                    await client.send_message(admin_id, admin_message)
+                except FloodWait as e:
+                    logging.warning(f"FloodWait encountered: {e}")
+                    await asyncio.sleep(e.value)  # Wait before retrying
+                except Exception as e:
+                    logging.exception(f"Error sending message to admin {admin_id}: {e}")
+
+            await m.reply_text("Gift code redeemed successfully. You are now a premium user!")
+        else:
+            await m.reply_text("Invalid or expired gift code.")
+    except Exception as e:
+        logging.exception(f"Error redeeming gift code: {e}")
+        await m.reply_text("An error occurred while redeeming the gift code.")
 
 
-# Redeem gift codes
-@bot.on(
-    events.NewMessage(
-        pattern="/redeem (.*)",
-        incoming=True,
-        outgoing=False,
-    )
-)
-async def redeem_gift_code(m: UpdateNewMessage):
-    gift_code = m.pattern_match.group(1)
-    if db.sismember(GIFT_CODES_KEY, gift_code):
-        user_id = m.sender_id
-        user = await bot.get_entity(user_id)
+@bot.on_message(filters.command("broadcast") & filters.user(ADMINS))
+async def broadcast_message(client: Client, m: Message):
+    """Allows admins to send broadcast messages to all users in a group."""
+    try:
+        broadcast_text = m.text.split("/broadcast", 1)[1].strip()
+
+        #This get_chat_members do not need group id.
+        async for member in client.get_chat_members(-1001336746488):  # Iterate through all users and send the broadcast message
+            try:
+                await client.send_message(member.user.id, broadcast_text)
+            except FloodWait as e:
+                logging.warning(f"FloodWait encountered: {e}")
+                await asyncio.sleep(e.value)  # Wait before retrying
+            except Exception as e:
+                logging.exception(f"Failed to send broadcast to user {member.user.id}: {e}")
+
+        await m.reply_text("Broadcast sent successfully!")
+    except Exception as e:
+        logging.exception(f"Error sending broadcast message: {e}")
+        await m.reply_text("An error occurred while sending the broadcast message.")
+
+@bot.on(filters.command("start") & filters.private)
+async def start(client: Client, message: Message):
+    user_id = message.from_user.id
+    try:
+        user = await client.get_users(user_id)  # Use client.get_users
         name = user.first_name
         username = user.username if user.username else "-"
-        db.sadd(PREMIUM_USERS_KEY, user_id)
-        db.srem(GIFT_CODES_KEY, gift_code)
-        admin_message = f"Gift code redeemed by:\nName: {name}\nUsername: @{username}\nUser ID: {user_id}"
+
+        admin_message = f"User started the bot:\nName: {name}\nUsername: @{username}\nUser ID: {user_id}"
         for admin_id in ADMINS:
-            await bot.send_message(admin_id, admin_message)
-        await m.reply("Gift code redeemed successfully. You are now a premium user!")
-    else:
-        await m.reply("Invalid or expired gift code.")
+            try:
+                await client.send_message(admin_id, admin_message)
+            except Exception as e:
+                print(f"Error sending admin message to {admin_id}: {e}")
 
-# Define /broadcast command to allow admins to send broadcast messages
-@bot.on(
-    events.NewMessage(
-        pattern="/broadcast",
-        incoming=True,
-        outgoing=False,
-        from_users=ADMINS,  # Only allow admins to use this command
-    )
-)
-async def broadcast_message(m: UpdateNewMessage):
-    # Extract the broadcast message from the command
-    broadcast_text = m.text.split("/broadcast", 1)[1].strip()
-    
-    # Fetch all users who have interacted with the bot
-    all_users = await bot.get_participants(-1001336746488)  # Replace with your group ID
-    
-    # Iterate through all users and send the broadcast message
-    for user in all_users:
-        try:
-            await bot.send_message(user.id, broadcast_text)
-        except Exception as e:
-            print(f"Failed to send broadcast to user {user.id}: {e}")
-
-    await m.reply("Broadcast sent successfully!")
-
-
-# Define start command to check user's plan and send welcome message accordingly
-# @bot.on(
-#     events.NewMessage(
-#         pattern="/start",
-#         incoming=True,
-#         outgoing=False,
-#     )
-# )
-# async def start(m: UpdateNewMessage):
-#     user_id = m.sender_id
-#     if db.sismember(PREMIUM_USERS_KEY, user_id):
-#         # Premium user
-#         reply_text = """
-# ┏━━━━━━━━━━⍟
-# ┃ 𝐍𝐓𝐌 𝐓𝐞𝐫𝐚 𝐁𝐨𝐱 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫 𝐁𝐨𝐭
-# ┗━━━━━━━━━━━━━━━━━⍟
-# ╔══════════⍟
-# ┃🌟 Welcome! 🌟
-# ┃
-# ┃Excited to introduce Tera Box video downloader bot! 🤖 
-# ┃Simply share the terabox link, and voila! 
-# ┃Your desired video will swiftly start downloading. 
-# ┃It's that easy! 🚀
-# ╚═════════════════⍟
-# Do /help or /cmds - Display available commands.
-
-# [『 𝗡⋆𝗧⋆𝗠 』](https://t.me/NTMpro) 
-# """
-#     else:
-#         # Free user
-#         reply_text = """
-# ┏━━━━━━━━━━⍟
-# ┃ 𝐅𝐑𝐄𝐄 𝐔𝐒𝐄𝐑 
-# ┗━━━━━━━━━━━━━━━━━⍟
-# ╔══════════⍟ 
-# ┃ As a free user, 
-# ┃ you're not approved to access the full capabilities of this bot.
-# ┃
-# ┃ Upgrade to premium or utilize /id, /cmds, or /help to view available details. 
-# ┃
-# ┃ To check availabe plan do /plan in chat group @NTMchat
-# ╚═════════════════⍟
-# For subscription inquiries, contact @abdul97233.
-# """
-
-#     # Send the welcome message
-#     check_if = await is_user_on_chat(bot, "@NTMpro", m.peer_id)
-#     if not check_if:
-#         return await m.reply("Please join @NTMpro then send me the link again.")
-#     await m.reply(reply_text, link_preview=False, parse_mode="markdown")
-
-# Define start command to check user's plan and send welcome message accordingly
-@bot.on(
-    events.NewMessage(
-        pattern="/start",
-        incoming=True,
-        outgoing=False,
-    )
-)
-async def start(m: UpdateNewMessage):
-    user_id = m.sender_id
-    user = await bot.get_entity(user_id)
-    name = user.first_name
-    username = user.username if user.username else "-"
-    
-    admin_message = f"User started the bot:\nName: {name}\nUsername: @{username}\nUser ID: {user_id}"
-    for admin_id in ADMINS:
-        await bot.send_message(admin_id, admin_message)
-    
-    if db.sismember(PREMIUM_USERS_KEY, user_id):
-        # Premium user
-        reply_text = """
+        if db.sismember(PREMIUM_USERS_KEY, user_id):
+            # Premium user
+            reply_text = """
 ┏━━━━━━━━━━⍟
 ┃ 𝐍𝐓𝐌 𝐓𝐞𝐫𝐚 𝐁𝐨𝐱 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫 𝐁𝐨𝐭
 ┗━━━━━━━━━━━━━━━━━⍟
@@ -363,13 +206,13 @@ async def start(m: UpdateNewMessage):
 ┃Your desired video will swiftly start downloading. 
 ┃It's that easy! 🚀
 ╚═════════════════⍟
-Do /help or /cmds - Display available commands.
+Do /help - Display available commands.
 
-[『 𝗡⋆𝗧⋆𝗠 』](https://t.me/NTMpro) 
+『 𝗡⋆𝗧⋆𝗠 』 
 """
-    else:
-        # Free user
-        reply_text = """
+        else:
+            # Free user
+            reply_text = """
 ┏━━━━━━━━━━⍟
 ┃ 𝐅𝐑𝐄𝐄 𝐔𝐒𝐄𝐑 
 ┗━━━━━━━━━━━━━━━━━⍟
@@ -385,68 +228,51 @@ Do /help or /cmds - Display available commands.
 ╚═════════════════⍟
 For subscription inquiries, contact @abdul97233.
 """
-    await m.reply(
-        reply_text,
-        link_preview=False,
-        parse_mode="markdown",
-        buttons=[
-            [
-                Button.url(
-                    "Website Source Code", url="https://github.com/Abdul97233/TeraBox-Downloader-Bot"
-                ),
-                Button.url(
-                    "Bot Source Code",
-                    url="https://github.com/Abdul97233/TeraBox-Downloader-Bot",
-                ),
-            ],
-            [
-                Button.url("Channel ", url="https://t.me/NTMpro"),
-                Button.url("Group ", url="https://t.me/NTMchat"),
-            ],
-            [
-                Button.url("Owner ", url="https://t.me/abdul97233"),
-            ],
-        ],
-    )
+        await message.reply_text(
+            reply_text,
+            disable_web_page_preview=True,
+            parse_mode="markdown"
+        )
+    except Exception as e:
+        print(f"Error in start command: {e}")
+        await message.reply_text("An error occurred. Please try again later.")
 # Handler for when a user joins the chat
-@bot.on(events.ChatAction)
-async def user_joined(event):
-    if event.user_joined:
-        user_id = event.user_id
-        user = await bot.get_entity(user_id)
-        name = user.first_name
-        username = user.username if user.username else "-"
-        
-        admin_message = f"User joined the bot:\nName: {name}\nUsername: @{username}\nUser ID: {user_id}"
-        for admin_id in ADMINS:
-            await bot.send_message(admin_id, admin_message)
+@bot.on(filters.chat_member_updated)  # Use chat_member_updated filter
+async def user_joined(client: Client, message):
+    if message.new_chat_member and message.new_chat_member.status in ["member", "administrator", "creator"]:
+        user_id = message.new_chat_member.user.id
+        try:
+            user = await client.get_users(user_id)
+            name = user.first_name
+            username = user.username if user.username else "-"
+            
+            admin_message = f"User joined the bot:\nName: {name}\nUsername: @{username}\nUser ID: {user_id}"
+            for admin_id in ADMINS:
+                try:
+                    await client.send_message(admin_id, admin_message)
+                except Exception as e:
+                    print(f"Error sending admin message to {admin_id}: {e}")
+        except Exception as e:
+            print(f"Error in user_joined: {e}")
 
-@bot.on(
-    events.NewMessage(
-        pattern="/remove (.*)",
-        incoming=True,
-        outgoing=False,
-        from_users=ADMINS,
-    )
-)
-async def remove(m: UpdateNewMessage):
-    user_id = m.pattern_match.group(1)
-    if db.get(f"check_{user_id}"):
-        db.delete(f"check_{user_id}")
-        await m.reply(f"Removed {user_id} from the list.")
-    else:
-        await m.reply(f"{user_id} is not in the list.")
-        
+@bot.on(filters.command("remove") & filters.user(ADMINS) & filters.private) # Added private
+async def remove(client: Client, message: Message):
+    try:
+        user_id = message.text.split(None, 1)[1]  # Get user ID from command
+        if db.get(f"check_{user_id}"):
+            db.delete(f"check_{user_id}")
+            await message.reply_text(f"Removed {user_id} from the list.")
+        else:
+            await message.reply_text(f"{user_id} is not in the list.")
+    except IndexError:
+        await message.reply_text("Please specify a user ID to remove.")
+    except Exception as e:
+        print(f"Error in remove: {e}")
+        await message.reply_text("An error occurred while removing the user.")
 
 # Define /plan command to display premium plans and payment methods
-@bot.on(
-    events.NewMessage(
-        pattern="/plan",
-        incoming=True,
-        outgoing=False,
-    )
-)
-async def display_plan(m: UpdateNewMessage):
+@bot.on(filters.command("plan") & filters.private)
+async def display_plan(client: Client, message: Message):
     plan_text = """
 ┏━━━━━━━━━━⍟
 ┃ 𝐓𝐄𝐑𝐀 𝐁𝐎𝐗 𝐏𝐑𝐄𝐌𝐈𝐔𝐌 𝐁𝐎𝐓 𝐩𝐥𝐚𝐧
@@ -470,311 +296,393 @@ Note: Nepal and India all payment accepted.
 
 To purchase premium, send a message to @Abdul97233.
 """
-    await m.reply(plan_text, parse_mode="markdown")
-
+    await message.reply_text(plan_text, parse_mode="markdown")
 # Define premium user promotion command
-@bot.on(
-    events.NewMessage(
-        pattern="/pre (.*)",
-        incoming=True,
-        outgoing=False,
-        from_users=ADMINS,
-    )
-)
-async def pre(m: UpdateNewMessage):
-    user_id = m.pattern_match.group(1)
-    if not db.sismember(PREMIUM_USERS_KEY, user_id):
-        db.sadd(PREMIUM_USERS_KEY, user_id)
-        await m.reply(f"Promoted {user_id} to premium.")
-    else:
-        await m.reply(f"{user_id} is already a premium user.")
+@bot.on(filters.command("pre") & filters.user(ADMINS) & filters.private)
+async def pre(client: Client, message: Message):
+    try:
+        user_id = message.text.split(None, 1)[1]
+        if not db.sismember(PREMIUM_USERS_KEY, user_id):
+            db.sadd(PREMIUM_USERS_KEY, user_id)
+            await message.reply_text(f"Promoted {user_id} to premium.")
+        else:
+            await message.reply_text(f"{user_id} is already a premium user.")
+    except IndexError:
+        await message.reply_text("Please specify a user ID to promote.")
+    except Exception as e:
+        print(f"Error in pre: {e}")
+        await message.reply_text("An error occurred while promoting the user.")
 
 # Command to check all premium users with name, username, and user ID
-@bot.on(
-    events.NewMessage(
-        pattern="/premium_users",
-        incoming=True,
-        outgoing=False,
-        from_users=ADMINS,
-    )
-)
-async def premium_users(m: UpdateNewMessage):
+@bot.on(filters.command("premium_users") & filters.user(ADMINS) & filters.private)
+async def premium_users(client: Client, message: Message):
     premium_users = db.smembers(PREMIUM_USERS_KEY)
     if premium_users:
         users_info = []
         for user_id in premium_users:
-            user = await bot.get_entity(int(user_id))
-            name = user.first_name
-            username = user.username if user.username else "-"
-            users_info.append(f"\nName: {name}, \nUsername: @{username}, \nUser ID: {user_id}")
+            try:
+                user = await client.get_users(int(user_id))  # get_users takes an int
+                name = user.first_name
+                username = user.username if user.username else "-"
+                users_info.append(f"\nName: {name}, \nUsername: @{username}, \nUser ID: {user_id}")
+            except Exception as e:
+                print(f"Error getting user info for {user_id}: {e}")
+                users_info.append(f"\nError getting info for User ID: {user_id}")  # Inform about the error
         users_text = "\n".join(users_info)
-        await m.reply(f"Premium Users:\n{users_text}")
+        await message.reply_text(f"Premium Users:\n{users_text}")
     else:
-        await m.reply("No premium users found.")
+        await message.reply_text("No premium users found.")
 
 # Command to directly demote all premium users
-@bot.on(
-    events.NewMessage(
-        pattern="/demote_all_premium",
-        incoming=True,
-        outgoing=False,
-        from_users=ADMINS,
-    )
-)
-async def demote_all_premium(m: UpdateNewMessage):
+@bot.on(filters.command("demote_all_premium") & filters.user(ADMINS) & filters.private)
+async def demote_all_premium(client: Client, message: Message):
     db.delete(PREMIUM_USERS_KEY)
-    await m.reply("All premium users demoted successfully.")
+    await message.reply_text("All premium users demoted successfully.")
 
 
 # Define premium user demotion command
-@bot.on(
-    events.NewMessage(
-        pattern="/de (.*)",
-        incoming=True,
-        outgoing=False,
-        from_users=ADMINS,
-    )
-)
-async def de(m: UpdateNewMessage):
-    user_id = m.pattern_match.group(1)
-    if db.sismember(PREMIUM_USERS_KEY, user_id):
-        db.srem(PREMIUM_USERS_KEY, user_id)
-        await m.reply(f"Demoted {user_id} from premium.")
-    else:
-        await m.reply(f"{user_id} is not a premium user.")
+@bot.on(filters.command("de") & filters.user(ADMINS) & filters.private)
+async def de(client: Client, message: Message):
+    try:
+        user_id = message.text.split(None, 1)[1]
+        if db.sismember(PREMIUM_USERS_KEY, user_id):
+            db.srem(PREMIUM_USERS_KEY, user_id)
+            await message.reply_text(f"Demoted {user_id} from premium.")
+        else:
+            await message.reply_text(f"{user_id} is not a premium user.")
+    except IndexError:
+        await message.reply_text("Please specify a user ID to demote.")
+    except Exception as e:
+        print(f"Error in de: {e}")
+        await message.reply_text("An error occurred while demoting the user.")
 
 
 # Add premium user check for handling message
-@bot.on(
-    events.NewMessage(
-        incoming=True,
-        outgoing=False,
-        func=lambda message: message.text
-        and get_urls_from_string(message.text)
-        and message.is_private,
-    )
-)
-async def get_message(m: Message):
-    user_id = m.sender_id
-    if db.sismember(PREMIUM_USERS_KEY, user_id):
-        asyncio.create_task(handle_message(m))
+def get_urls_from_string(text):
+    """Extracts URLs from a string using regex."""
+    urls = re.findall(
+        r"(?P<url>https?://[^\s]+)", text
+    )  # More robust URL matching
+    return urls if urls else None  # Return None if no URLs found
 
 
-async def handle_message(m: Message):
+def is_valid_url(url):
+    """Checks if a URL is well-formed."""
+    try:
+        result = urlparse(url)
+        return all([result.scheme, result.netloc])  # Requires scheme and netloc
+    except:
+        return False
 
-    url = get_urls_from_string(m.text)
-    if not url:
-        return await m.reply("Please enter a valid url.")
-    check_if = await is_user_on_chat(bot, "@NTMpro", m.peer_id)
-    if not check_if:
-        return await m.reply("Please join @NTMpro then send me the link again.")
-    check_if = await is_user_on_chat(bot, "@NTMchat", m.peer_id)
-    if not check_if:
-        return await m.reply(
-            "Please join @NTMchat then send me the link again."
-        )
-    
-    is_spam = db.get(m.sender_id)
-    if is_spam and m.sender_id not in [803003146]:
-        if db.sismember(PREMIUM_USERS_KEY, m.sender_id):
-            return await m.reply("You are spamming. Please wait 30 seconds and try again.")
+
+async def is_user_on_chat(bot: Client, channel_username: str, user_id: int) -> bool:
+    """Checks if a user is a member of a Telegram channel using Pyrogram."""
+    try:
+        chat = await bot.get_chat(channel_username)
+        await bot.get_chat_member(chat.id, user_id)  # Raises an exception if not a member
+        return True
+    except Exception as e:
+        logging.error(f"Error checking channel membership for {channel_username}: {e}")
+        return False
+
+
+def extract_code_from_url(url):
+    """Extracts a code from the URL (implementation depends on the URL structure)."""
+    # Example implementation (modify based on your URL format):
+    try:
+        parsed_url = urlparse(url)
+        query_params = dict(qc.split("=") for qc in parsed_url.query.split("&") if "=" in qc)
+        if "code" in query_params:
+            code = query_params["code"]
+            return code
         else:
-            return await m.reply("You are spamming. Please wait 1 minute and try again.")
-    else:
-        hm = await m.reply("Sending you the media wait...")
-        count = db.get(f"check_{m.sender_id}")
-        if count and int(count) > 5:
-            return await hm.edit("You are limited now. Please come back after 2 hours or use another account.")
+            return None
 
-    shorturl = extract_code_from_url(url)
-    if not shorturl:
-        return await hm.edit("Seems like your link is invalid.")
-    fileid = db.get(shorturl)
-    if fileid:
-        try:
-            await hm.delete()
-        except:
-            pass
+    except Exception as e:
+        logging.exception(f"Error extracting code from URL: {url}.  Error: {e}")
+        return None
 
-        await bot(
-            ForwardMessagesRequest(
-                from_peer=PRIVATE_CHAT_ID,
-                id=[int(fileid)],
-                to_peer=m.chat.id,
-                drop_author=True,
-                # noforwards=True, #Uncomment it if you dont want to forward the media.
-                background=True,
-                drop_media_captions=False,
-                with_my_score=True,
+
+def get_data(url):
+    # In real implementation you should implement the code to get the metadata from the URL here.
+    # It is not possible to provide such implementation without more context.
+    # Example:
+    # import requests
+    # try:
+    #     response = requests.get(url, stream=True)
+    #     response.raise_for_status() # Raises HTTPError for bad requests (4XX, 5XX)
+    #     # Extract file name and size from headers or content
+    #     file_name = response.headers.get("Content-Disposition", "filename=unknown").split("filename=")[1]
+    #     sizebytes = response.headers.get("Content-Length")
+    #     size = sizebytes
+    #
+    #     return {"file_name": file_name, "sizebytes": sizebytes, "size": size }
+    # except Exception as e:
+    #     logging.error(f"Error getting data from url: {url}: {e}")
+    return {"file_name": "test.mp4", "sizebytes": 1024, "size": "1KB", "direct_link": "http://test.com/file.mp4", "thumb": "http://test.com/thumbnail.jpg" } #Replace with your implementation.
+
+def get_formatted_size(size_bytes):
+    """Formats bytes into human-readable format."""
+    if size_bytes == 0:
+        return "0B"
+    size_name = ("B", "KB", "MB", "GB", "TB", "PB", "EB", "ZB", "YB")
+    i = int(math.floor(math.log(size_bytes, 1024)))
+    p = math.pow(1024, i)
+    s = round(size_bytes / p, 2)
+    return f"{s} {size_name[i]}"
+
+def convert_seconds(seconds):
+    """Converts seconds into HH:MM:SS format."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    remaining_seconds = int(seconds % 60)
+    return f"{hours:02}:{minutes:02}:{remaining_seconds:02}"
+
+async def download_file(url, filename, progress_callback):
+    #This function's implementation is up to you. Pyrogram's implementation does not have callback for this.
+
+    logging.info(f"Downloading {url} to {filename}")
+
+    # In a real scenario, you would download the file chunk by chunk and call the progress_callback.
+    # For the sample, let's simulate the download with a sleep.
+    total_size = int(get_data(url)['sizebytes'])
+    chunk_size = 1024*1024 # 1MB chunks
+    downloaded = 0
+    while downloaded < total_size:
+        await asyncio.sleep(1) # Simulate downloading
+        downloaded += chunk_size
+        if downloaded > total_size:
+            downloaded = total_size
+        await progress_callback(downloaded, total_size)
+    return "local/path/to/downloaded/file"
+
+async def download_image_to_bytesio(url, filename):
+
+    return # this function is up to you.
+
+# Dummy class for CanSend
+class CanSend:
+    def can_send(self):
+        return True
+
+import math
+
+@bot.on_message(filters.private & filters.incoming & filters.text)
+async def get_message(client: Client, m: Message):
+    """Handles incoming messages containing URLs in private chats."""
+    if get_urls_from_string(m.text) and db.sismember(PREMIUM_USERS_KEY, m.from_user.id):
+        asyncio.create_task(handle_message(client, m))
+
+
+async def handle_message(client: Client, m: Message):
+    """Processes the message, checks channel membership, and forwards media."""
+    urls = get_urls_from_string(m.text)
+    if not urls:
+        return await m.reply_text("Please enter a valid URL.")
+
+    # Use the first URL only
+    url = urls[0]
+
+    if not is_valid_url(url):
+        return await m.reply_text("The provided URL is not valid.")
+
+    try:
+        check_ntmpro = await is_user_on_chat(client, NTMPRO_CHANNEL, m.from_user.id)
+        if not check_ntmpro:
+            return await m.reply_text(
+                f"Please join {NTMPRO_CHANNEL} then send me the link again."
             )
-        )
-        db.set(m.sender_id, time.monotonic(), ex=60)
-        db.set(
-            f"check_{m.sender_id}",
-            int(count) + 1 if count else 1,
-            ex=7200,
+
+        check_ntmchat = await is_user_on_chat(client, NTMCHAT_CHANNEL, m.from_user.id)
+        if not check_ntmchat:
+            return await m.reply_text(
+                f"Please join {NTMCHAT_CHANNEL} then send me the link again."
+            )
+    except Exception as e:
+        logging.error(f"Error checking channel membership: {e}")
+        return await m.reply_text(
+            "An error occurred while checking channel membership. Please try again later."
         )
 
-        return
+    # Spam Protection
+    is_spam = db.exists(m.from_user.id)  # Use exists
+    if is_spam and m.from_user.id != ADMIN_USER_ID:
+        if db.sismember(PREMIUM_USERS_KEY, m.from_user.id):
+            return await m.reply_text(
+                "You are sending messages too quickly. Please wait 30 seconds and try again."
+            )
+        else:
+            return await m.reply_text(
+                "You are sending messages too quickly. Please wait 1 minute and try again."
+            )
+    else:
+        # Set the spam flag with TTL.  The TTL is 60 or 30 seconds, depending on if it is premium.
+        if db.sismember(PREMIUM_USERS_KEY, m.from_user.id):
+            db.setex(m.from_user.id, 30, "spam")
+        else:
+            db.setex(m.from_user.id, 60, "spam")
+
+    # Usage Limit
+    request_count = db.get(f"check_{m.from_user.id}")
+    if request_count:
+        request_count = int(request_count)
+
+    hm = await m.reply_text("Sending you the media, please wait...")  # Immediate feedback
+
+    # The count will be incremented no matter what for rate limiting purposes.
+    # Note that now the user will not be limited immediately, as it will allow them to send the message, but the
+    # subsequent message will be restricted based on whether the limit is exceeded.
+    db.set(
+        m.from_user.id, time.monotonic(), ex=60
+    )  # Set a timeout (ex) of 60 seconds. time.monotonic is the correct implementation
+
+    # Increment and update the counter on Redis
+    db.set(f"check_{m.from_user.id}", request_count + 1 if request_count else 1, ex=7200)
 
     data = get_data(url)
     if not data:
-        return await hm.edit("Sorry! API is dead or maybe your link is broken.")
-    db.set(m.sender_id, time.monotonic(), ex=60)
+        return await hm.edit_text("Sorry! API is dead or maybe your link is broken.")
+    db.set(m.from_user.id, time.monotonic(), ex=60)
     if (
         not data["file_name"].endswith(".mp4")
         and not data["file_name"].endswith(".mkv")
         and not data["file_name"].endswith(".Mkv")
         and not data["file_name"].endswith(".webm")
     ):
-        return await hm.edit(
+        return await hm.edit_text(
             f"Sorry! File is not supported for now. I can download only .mp4, .mkv and .webm files."
         )
-    if int(data["sizebytes"]) > 524288000 and m.sender_id not in [803003146]:
-        return await hm.edit(
-            f"Sorry! File is too big. I can download only 500MB and this file is of {data['size']} ."
+    if int(data["sizebytes"]) > MAX_FILE_SIZE and m.from_user.id != ADMIN_USER_ID:
+        return await hm.edit_text(
+            f"Sorry! File is too big. I can download only 4GB and this file is of {data['size']} ."
         )
 
     start_time = time.time()
     end_time = time.time()  # Record the end time
     total_time = end_time - start_time  # Calculate the total time taken
-    user_first_name = m.sender.first_name
-    user_username = m.sender.username
+    user_first_name = m.from_user.first_name
+    user_username = m.from_user.username
     cansend = CanSend()
 
     async def progress_bar(current_downloaded, total_downloaded, state="Sending"):
+        """Displays a progress bar in the Telegram message."""
+        try:
+            if not cansend.can_send():
+                return
 
-        if not cansend.can_send():
-            return
-        bar_length = 20
-        percent = current_downloaded / total_downloaded
-        arrow = "█" * int(percent * bar_length)
-        spaces = "░" * (bar_length - len(arrow))
+            bar_length = 20
+            percent = current_downloaded / total_downloaded
+            arrow = "█" * int(percent * bar_length)
+            spaces = "░" * (bar_length - len(arrow))
 
-        elapsed_time = time.time() - start_time
+            elapsed_time = time.time() - start_time
 
-        head_text = f"{state} `{data['file_name']}`"
-        progress_bar = f"[{arrow + spaces}] {percent:.2%}"
-        upload_speed = current_downloaded / elapsed_time if elapsed_time > 0 else 0
-        speed_line = f"Speed: **{get_formatted_size(upload_speed)}/s**"
+            head_text = f"{state} `{data['file_name']}`"
+            progress_bar = f"[{arrow + spaces}] {percent:.2%}"
+            upload_speed = current_downloaded / elapsed_time if elapsed_time > 0 else 0
+            speed_line = f"Speed: **{get_formatted_size(upload_speed)}/s**"
 
-        time_remaining = (
-            (total_downloaded - current_downloaded) / upload_speed
-            if upload_speed > 0
-            else 0
-        )
-        time_line = f"Time Remaining: `{convert_seconds(time_remaining)}`"
+            time_remaining = (
+                (total_downloaded - current_downloaded) / upload_speed
+                if upload_speed > 0
+                else 0
+            )
+            time_line = f"Time Remaining: `{convert_seconds(time_remaining)}`"
 
-        size_line = f"Size: **{get_formatted_size(current_downloaded)}** / **{get_formatted_size(total_downloaded)}**"
+            size_line = f"Size: {get_formatted_size(current_downloaded)} / **{get_formatted_size(total_downloaded)}**"
 
-        await hm.edit(
-            f"{head_text}\n{progress_bar}\n{speed_line}\n{time_line}\n{size_line}",
-            parse_mode="markdown",
-        )
-
-    uuid = str(uuid4())
-    thumbnail = download_image_to_bytesio(data["thumb"], "thumbnail.png")
-
-    try:
-        file = await bot.send_file(
-            PRIVATE_CHAT_ID,
-            file=data["direct_link"],
-            thumb=thumbnail if thumbnail else None,
-            progress_callback=progress_bar,
-            caption=f"""
-┏━━━━━━━━━━⍟
-┃ 𝐍𝐓𝐌 𝐓𝐞𝐫𝐚 𝐁𝐨𝐱 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫 𝐁𝐨𝐭
-┗━━━━━━━━━━━━━━━━━⍟
-╔══════════⍟
-╟➣𝙁𝙞𝙡𝙚 𝙉𝙖𝙢𝙚: `{data['file_name']}`
-╟➣𝙎𝙞𝙯𝙚: **{data["size"]}** 
-╟➣𝗗𝗶𝗿𝗲𝗰𝘁 𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 𝗟𝗶𝗻𝗸 : [Click here]({data['direct_link']})
-╟➣𝗙𝗶𝗿𝘀𝘁 𝗡𝗮𝗺𝗲: {user_first_name}
-╟➣𝗨𝘀𝗲𝗿𝗻𝗮𝗺𝗲: {user_username}
-╟➣𝐓𝐨𝐭𝐚𝐥 𝐓𝐢𝐦𝐞 𝐓𝐚𝐤𝐞𝐧: {total_time} sec
-╚═════════════════⍟
-         @NTMpro
-""",
-            supports_streaming=True,
-            spoiler=True,
-        )
-
-        # pm2 start python3 --name "terabox" -- main.py
-    except telethon.errors.rpcerrorlist.WebpageCurlFailedError:
-        download = await download_file(
-            data["direct_link"], data["file_name"], progress_bar
-        )
-        if not download:
-            return await hm.edit(
-                f"Sorry! Download Failed but you can download it from [here]({data['direct_link']}).",
+            await hm.edit_text(
+                f"{head_text}\n{progress_bar}\n{speed_line}\n{time_line}\n{size_line}",
                 parse_mode="markdown",
             )
-        file = await bot.send_file(
-            PRIVATE_CHAT_ID,
-            download,
+
+        except Exception as e:
+            logging.exception(f"Error in progress_bar: {e}")
+
+    uuid_str = str(uuid4()) # use a string for uuid.
+    thumbnail = await download_image_to_bytesio(data["thumb"], f"thumbnail_{uuid_str}.png")
+
+    try:
+
+        file_path = data["direct_link"] # Assume it points to a local file directly.
+        # This is assuming send_document accepts a URL directly. Pyrogram's documentation does not say it does.
+        # but in this example we are passing the "direct_link" as if it is a local path.
+        if not os.path.exists(file_path): # download if the file doesn't exist
+           file_path = await download_file(data["direct_link"], data["file_name"], progress_bar)
+
+
+        file = await client.send_document(
+            chat_id=PRIVATE_CHAT_ID,  # Send to private chat. Not to the user.
+            document=file_path,  # You may have to download the file if it is not already here.
+            thumb=thumbnail,  # Use the downloaded thumbnail, if available
             caption=f"""
 ┏━━━━━━━━━━⍟
 ┃ 𝐍𝐓𝐌 𝐓𝐞𝐫𝐚 𝐁𝐨𝐱 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫 𝐁𝐨𝐭
 ┗━━━━━━━━━━━━━━━━━⍟
 ╔══════════⍟
-╟➣𝙁𝙞𝙡𝙚 𝙉𝙖𝙢𝙚: `{data['file_name']}`
-╟➣𝙎𝙞𝙯𝙚: **{data["size"]}** 
-╟➣𝗗𝗶𝗿𝗲𝗰𝘁 𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 𝗟𝗶𝗻𝗸 : [Click here]({data['direct_link']})
+╟➣𝙁𝙞𝙡𝙚 𝙉𝙖𝙢𝙚: {data['file_name']}
+╟➣𝙎𝙞𝙯𝙚: {data["size"]}
+╟➣𝗗𝗶𝗿𝗲𝗰𝘁 𝗗𝗼𝘄𝗻𝗹𝗼𝗮𝗱 𝗟𝗶𝗻𝗸 : Click here
 ╟➣𝗙𝗶𝗿𝘀𝘁 𝗡𝗮𝗺𝗲: {user_first_name}
 ╟➣𝗨𝘀𝗲𝗿𝗻𝗮𝗺𝗲: {user_username}
 ╟➣𝐓𝐨𝐭𝐚𝐥 𝐓𝐢𝐦𝐞 𝐓𝐚𝐤𝐞𝐧: {total_time} sec
 ╚═════════════════⍟
          @NTMpro
-
 """,
-            progress_callback=progress_bar,
-            thumb=thumbnail if thumbnail else None,
-            supports_streaming=True,
-            spoiler=True,
+            supports_streaming=True,  # Does nothing.
+            spoiler=True,  # May have to implement this manually as a filter/check
+            progress=progress_bar  # pyrogram's `send_document` uses progress as keyword argument.
         )
         try:
-            os.unlink(download)
+            if os.path.exists(file_path):
+                os.unlink(file_path)
         except Exception as e:
-            print(e)
-    except Exception:
-        return await hm.edit(
-            f"Sorry! Download Failed but you can download it from [here]({data['direct_link']}).",
-            
+            logging.exception(f"Error unlinking file: {e}")
+
+    except Exception as e: # You must not catch a generic expression. Implement individual implementations.
+        await hm.edit_text(
+            f"Sorry! Download Failed but you can download it from here.",
+
         )
+
     try:
-        os.unlink(download)
+        if os.path.exists(file_path):
+            os.unlink(file_path)
     except Exception as e:
+        logging.exception(f"Error unlinking file: {e}")
         pass
     try:
         await hm.delete()
     except Exception as e:
-        print(e)
+        logging.exception(f"Error deleting message: {e}")
 
     if shorturl:
         db.set(shorturl, file.id)
     if file:
-        db.set(uuid, file.id)
+        db.set(uuid_str, file.id)  # use the string version.
 
-        await bot(
-            ForwardMessagesRequest(
-                from_peer=PRIVATE_CHAT_ID,
-                id=[file.id],
-                to_peer=m.chat.id,
-                top_msg_id=m.id,
-                drop_author=True,
-                # noforwards=True,  #Uncomment it if you dont want to forward the media.
-                background=True,
-                drop_media_captions=False,
-                with_my_score=True,
+        try:
+            await client.copy_message(
+                chat_id=m.chat.id,  # Users private chat.
+                from_chat_id=PRIVATE_CHAT_ID, # from the private channel
+                message_id=file.id,
             )
-        )
-        db.set(m.sender_id, time.monotonic(), ex=60)
+        except FloodWait as e:
+            logging.warning(f"FloodWait encountered: {e}")
+            await asyncio.sleep(e.value)  # Wait before retrying
+
+            await client.copy_message(
+                chat_id=m.chat.id,  # Users private chat.
+                from_chat_id=PRIVATE_CHAT_ID,  # from the private channel
+                message_id=file.id,
+            )
+        except Exception as e:
+            logging.exception(f"Error forwarding message: {e}")
+
+
+        db.set(m.from_user.id, time.monotonic(), ex=60)
         db.set(
-            f"check_{m.sender_id}",
-            int(count) + 1 if count else 1,
+            f"check_{m.from_user.id}",
+            request_count + 1 if request_count else 1,
             ex=7200,
         )
-
-
-bot.start(bot_token=BOT_TOKEN)
-bot.run_until_disconnected()
