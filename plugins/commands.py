@@ -382,19 +382,15 @@ def download_image_to_bytesio(url: str, filename: str) -> BytesIO | None:
         return None
 
 db = redis.Redis(
-    host=HOST,
-    port=PORT,
-    password=PASSWORD,
+    host="redis-12345.c16.us-east-1-2.ec2.cloud.redislabs.com",
+    port="17713",
+    password="password",
     decode_responses=True,
 )
 
 PREMIUM_USERS_KEY = "premium_users"
 GIFT_CODES_KEY = "gift_codes"
-
-HOST = "redis-12345.c16.us-east-1-2.ec2.cloud.redislabs.com"
-PORT = "17713"
 USERNAME = "default"
-PASSWORD = "password"
 DATABASE = "NTM"
 
 PRIVATE_CHAT_ID = -1002313550165
