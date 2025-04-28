@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 from pyrogram import Client, filters
 from pyrogram.errors import FloodWait, MessageNotModified
 from pyrogram.types import Message
-
+import redis
 from redis import Redis
 
 def check_url_patterns(url):
