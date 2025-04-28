@@ -15,7 +15,6 @@ from redis import Redis
 
 
 from cansend import CanSend
-from config import *
 from terabox import get_data
 from tools import (
     convert_seconds,
@@ -26,8 +25,6 @@ from tools import (
     get_urls_from_string,
     is_user_on_chat,
 )
-
-bot = TelegramClient("tele", API_ID, API_HASH)
 
 db = redis.Redis(
     host=HOST,
@@ -56,7 +53,7 @@ REQUEST_LIMIT_WINDOW = 60  # Seconds
 MAX_FILE_SIZE = 4294967296
 
 # Define /info and /id commands to display user information
-@bot.on(filters.command(["info"]) & filters.private)
+@Client.on(filters.command(["info"]) & filters.private)
 async def user_info(client: Client, message: Message):
     try:
         user_id = message.from_user.id
@@ -70,7 +67,7 @@ async def user_info(client: Client, message: Message):
         await message.reply_text("An error occurred while processing your request.")
 
 
-@bot.on(filters.command(["help"]) & filters.private)
+@Client.on(filters.command(["help"]) & filters.private)
 async def command_help(client: Client, message: Message):
     help_text = """
 ┏━━━━━━━━━━⍟
@@ -94,7 +91,7 @@ For premium contact @YadhuTG
     )
 
 
-@bot.on(filters.command("ping"))
+@Client.on(filters.command("ping"))
 async def ping_pong(client: Client, message: Message):
     start_time = time.time()
     msg = await message.reply_text("🖥️ Connection Status\nCommand: `/ping`\nResponse Time: Calculating...")
@@ -104,13 +101,13 @@ async def ping_pong(client: Client, message: Message):
     await msg.edit_text(f"🖥️ Connection Status\nCommand: `/ping`\nResponse Time: {latency_str} seconds")
 
 # Generate gift codes
-@bot.on_message(filters.command("gc") & filters.user(ADMINS) & filters.regex(r"^/gc (\d+)$"))
+@Client.on_message(filters.command("gc") & filters.user(ADMINS) & filters.regex(r"^/gc (\d+)$"))
 async def generate_gift_codes(client: Client, m: Message):
     """Generates gift codes and saves them to Redis."""
     try:
         quantity = int(m.matches[0].group(1)) # Use m.matches
 
-        gift_codes = [f"NTM-{str(uuid4())[:8]}" for _ in range(quantity)]
+        gift_codes = [f"Astro-{str(uuid4())[:8]}" for _ in range(quantity)]
         db.sadd(GIFT_CODES_KEY, *gift_codes)
 
         # Send a reply confirming the generation of gift codes
@@ -125,7 +122,7 @@ async def generate_gift_codes(client: Client, m: Message):
         await m.reply_text("An error occurred while generating gift codes.")
 
 
-@bot.on_message(filters.command("redeem") & filters.regex(r"^/redeem (.*)$"))
+@Client.on_message(filters.command("redeem") & filters.regex(r"^/redeem (.*)$"))
 async def redeem_gift_code(client: Client, m: Message):
     """Redeems a gift code and grants premium access to the user."""
     try:
@@ -156,7 +153,7 @@ async def redeem_gift_code(client: Client, m: Message):
         await m.reply_text("An error occurred while redeeming the gift code.")
 
 
-@bot.on_message(filters.command("broadcast") & filters.user(ADMINS))
+@Client.on_message(filters.command("broadcast") & filters.user(ADMINS))
 async def broadcast_message(client: Client, m: Message):
     """Allows admins to send broadcast messages to all users in a group."""
     try:
@@ -177,7 +174,7 @@ async def broadcast_message(client: Client, m: Message):
         logging.exception(f"Error sending broadcast message: {e}")
         await m.reply_text("An error occurred while sending the broadcast message.")
 
-@bot.on(filters.command("start") & filters.private)
+@Client.on(filters.command("start") & filters.private)
 async def start(client: Client, message: Message):
     user_id = message.from_user.id
     try:
@@ -237,7 +234,7 @@ For subscription inquiries, contact @abdul97233.
         print(f"Error in start command: {e}")
         await message.reply_text("An error occurred. Please try again later.")
 # Handler for when a user joins the chat
-@bot.on(filters.chat_member_updated)  # Use chat_member_updated filter
+@Client.on(filters.chat_member_updated)  # Use chat_member_updated filter
 async def user_joined(client: Client, message):
     if message.new_chat_member and message.new_chat_member.status in ["member", "administrator", "creator"]:
         user_id = message.new_chat_member.user.id
@@ -255,7 +252,7 @@ async def user_joined(client: Client, message):
         except Exception as e:
             print(f"Error in user_joined: {e}")
 
-@bot.on(filters.command("remove") & filters.user(ADMINS) & filters.private) # Added private
+@Client.on(filters.command("remove") & filters.user(ADMINS) & filters.private) # Added private
 async def remove(client: Client, message: Message):
     try:
         user_id = message.text.split(None, 1)[1]  # Get user ID from command
@@ -271,7 +268,7 @@ async def remove(client: Client, message: Message):
         await message.reply_text("An error occurred while removing the user.")
 
 # Define /plan command to display premium plans and payment methods
-@bot.on(filters.command("plan") & filters.private)
+@Client.on(filters.command("plan") & filters.private)
 async def display_plan(client: Client, message: Message):
     plan_text = """
 ┏━━━━━━━━━━⍟
@@ -298,7 +295,7 @@ To purchase premium, send a message to @Abdul97233.
 """
     await message.reply_text(plan_text, parse_mode="markdown")
 # Define premium user promotion command
-@bot.on(filters.command("pre") & filters.user(ADMINS) & filters.private)
+@Client.on(filters.command("pre") & filters.user(ADMINS) & filters.private)
 async def pre(client: Client, message: Message):
     try:
         user_id = message.text.split(None, 1)[1]
@@ -314,7 +311,7 @@ async def pre(client: Client, message: Message):
         await message.reply_text("An error occurred while promoting the user.")
 
 # Command to check all premium users with name, username, and user ID
-@bot.on(filters.command("premium_users") & filters.user(ADMINS) & filters.private)
+@Client.on(filters.command("premium_users") & filters.user(ADMINS) & filters.private)
 async def premium_users(client: Client, message: Message):
     premium_users = db.smembers(PREMIUM_USERS_KEY)
     if premium_users:
@@ -334,14 +331,14 @@ async def premium_users(client: Client, message: Message):
         await message.reply_text("No premium users found.")
 
 # Command to directly demote all premium users
-@bot.on(filters.command("demote_all_premium") & filters.user(ADMINS) & filters.private)
+@Client.on(filters.command("demote_all_premium") & filters.user(ADMINS) & filters.private)
 async def demote_all_premium(client: Client, message: Message):
     db.delete(PREMIUM_USERS_KEY)
     await message.reply_text("All premium users demoted successfully.")
 
 
 # Define premium user demotion command
-@bot.on(filters.command("de") & filters.user(ADMINS) & filters.private)
+@Client.on(filters.command("de") & filters.user(ADMINS) & filters.private)
 async def de(client: Client, message: Message):
     try:
         user_id = message.text.split(None, 1)[1]
@@ -467,7 +464,7 @@ class CanSend:
 
 import math
 
-@bot.on_message(filters.private & filters.incoming & filters.text)
+@Client.on_message(filters.private & filters.incoming & filters.text)
 async def get_message(client: Client, m: Message):
     """Handles incoming messages containing URLs in private chats."""
     if get_urls_from_string(m.text) and db.sismember(PREMIUM_USERS_KEY, m.from_user.id):
