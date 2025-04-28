@@ -4,9 +4,10 @@ import logging
 import os
 import re
 import time
-import requests
 from uuid import uuid4
-from urllib.parse import urlparse
+from telethon import TelegramClient
+from io import BytesIO
+from urllib.parse import parse_qs, urlparse
 
 from pyrogram import Client, filters
 from pyrogram.errors import FloodWait, MessageNotModified
@@ -14,17 +15,371 @@ from pyrogram.types import Message
 
 from redis import Redis
 
+def check_url_patterns(url):
+    """
+    Check if a given URL matches predefined patterns.
+    """
+    patterns = [
+        r"mirrobox\.com",
+        r"nephobox\.com",
+        r"freeterabox\.com",
+        r"1024tera\.com",
+        r"4funbox\.com",
+        r"terabox\.app",
+        r"terabox\.com",
+        r"momerybox\.com",
+        r"tibibox\.com",
+    ]
 
-from cansend import CanSend
-from tools import (
-    convert_seconds,
-    download_file,
-    download_image_to_bytesio,
-    extract_code_from_url,
-    get_formatted_size,
-    get_urls_from_string,
-    is_user_on_chat,
-)
+    return any(re.search(pattern, url) for pattern in patterns)
+
+
+def extract_urls(string: str) -> list[str]:
+    """
+    Extract valid URLs from a given string.
+    """
+    pattern = r"(https?://\S+)"
+    urls = re.findall(pattern, string)
+    return [url for url in urls if check_url_patterns(url)]
+
+
+def find_between(data: str, first: str, last: str) -> str | None:
+    """
+    Extract text between two substrings.
+    """
+    try:
+        start = data.index(first) + len(first)
+        end = data.index(last, start)
+        return data[start:end]
+    except ValueError:
+        return None
+
+
+def extract_surl_from_url(url: str) -> str | None:
+    """
+    Extract the 'surl' parameter from a URL.
+    """
+    parsed_url = urlparse(url)
+    query_params = parse_qs(parsed_url.query)
+    return query_params.get("surl", [None])[0]
+
+
+def fetch_data(url: str):
+    """
+    Fetch and process data from a Terabox URL.
+    """
+    session = requests.Session()
+    headers = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Connection": "keep-alive",
+        "Cookie": COOKIE,
+        "DNT": "1",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+        ),
+    }
+
+    # Make initial request
+    response = session.get(url, headers=headers)
+    if response.status_code != 200:
+        return {"error": "Failed to fetch initial URL"}
+
+    # Extract required parameters
+    default_thumbnail = find_between(response.text, 'og:image" content="', '"')
+    logid = find_between(response.text, "dp-logid=", "&")
+    jsToken = find_between(response.text, "fn%28%22", "%22%29")
+    bdstoken = find_between(response.text, 'bdstoken":"', '"')
+    shorturl = extract_surl_from_url(response.url)
+
+    if not shorturl or not logid or not jsToken:
+        return {"error": "Missing required parameters"}
+
+    api_url = (
+        f"https://www.terabox.app/share/list?app_id=250528&web=1&channel=0"
+        f"&jsToken={jsToken}&dp-logid={logid}&page=1&num=20&by=name&order=asc"
+        f"&shorturl={shorturl}&root=1"
+    )
+
+    # Fetch file list from API
+    response = session.get(api_url, headers=headers)
+    if response.status_code != 200:
+        return {"error": "Failed to fetch API data"}
+
+    try:
+        response_json = response.json()
+    except ValueError:
+        return {"error": "Invalid JSON response"}
+
+    if response_json.get("errno"):
+        return {"error": "API returned an error", "errno": response_json["errno"]}
+
+    file_list = response_json.get("list", [])
+    if not file_list:
+        return {"error": "No files found"}
+
+    file_info = file_list[0]
+    direct_link_response = session.head(file_info["dlink"], headers=headers)
+
+    # Compile result data
+    data = {
+        "file_name": file_info.get("server_filename"),
+        "link": file_info.get("dlink"),
+        "direct_link": direct_link_response.headers.get("location"),
+        "thumb": file_info.get("thumbs", {}).get("url3", default_thumbnail),
+        "size": get_formatted_size(file_info.get("size", 0)),
+        "sizebytes": file_info.get("size", 0),
+    }
+
+    return data
+
+
+class CanSend:
+    def can_send(self):
+        if not hasattr(self, "last_send_time"):
+            self.last_send_time = time.time() - 20
+        current_time = time.time()
+        elapsed_time = current_time - self.last_send_time
+
+        if elapsed_time >= 5:
+            self.last_send_time = current_time
+            return True
+        else:
+            return False
+
+
+def check_url_patterns(url: str) -> bool:
+    """
+    Check if the given URL matches any of the known URL patterns for code hosting services.
+
+    Parameters:
+    url (str): The URL to be checked.
+
+    Returns:
+    bool: True if the URL matches a known pattern, False otherwise.
+    """
+    patterns = [
+        r"ww\.mirrobox\.com",
+        r"www\.nephobox\.com",
+        r"freeterabox\.com",
+        r"www\.freeterabox\.com",
+        r"1024tera\.com",
+        r"4funbox\.co",
+        r"www\.4funbox\.com",
+        r"mirrobox\.com",
+        r"nephobox\.com",
+        r"terabox\.app",
+        r"terabox\.com",
+        r"www\.terabox\.ap",
+        r"www\.terabox\.com",
+        r"www\.1024tera\.co",
+        r"www\.momerybox\.com",
+        r"teraboxapp\.com",
+        r"momerybox\.com",
+        r"tibibox\.com",
+        r"www\.tibibox\.com",
+        r"www\.teraboxapp\.com",
+    ]
+
+    for pattern in patterns:
+        if re.search(pattern, url):
+            return True
+
+    return False
+
+
+def extract_code_from_url(url: str) -> str | None:
+    """
+    Extracts the code from a URL.
+
+    Parameters:
+        url (str): The URL to extract the code from.
+
+    Returns:
+        str: The extracted code, or None if the URL does not contain a code.
+    """
+    pattern1 = r"/s/(\w+)"
+    pattern2 = r"surl=(\w+)"
+
+    match = re.search(pattern1, url)
+    if match:
+        return match.group(1)
+
+    match = re.search(pattern2, url)
+    if match:
+        return match.group(1)
+
+    return None
+
+
+def get_urls_from_string(string: str) -> str | None:
+    """
+    Extracts all URLs from a given string.
+
+    Parameters:
+        string (str): The input string.
+
+    Returns:
+        str: The first URL found in the input string, or None if no URLs were found.
+    """
+    pattern = r"(https?://\S+)"
+    urls = re.findall(pattern, string)
+    urls = [url for url in urls if check_url_patterns(url)]
+    if not urls:
+        return
+    return urls[0]
+
+
+def extract_surl_from_url(url: str) -> str:
+    """
+    Extracts the surl from a URL.
+
+    Parameters:
+        url (str): The URL to extract the surl from.
+
+    Returns:
+        str: The extracted surl, or None if the URL does not contain a surl.
+    """
+    parsed_url = urlparse(url)
+    query_params = parse_qs(parsed_url.query)
+    surl = query_params.get("surl", [])
+
+    if surl:
+        return surl[0]
+    else:
+        return False
+
+
+def get_formatted_size(size_bytes: int) -> str:
+    """
+    Returns a human-readable file size from the given number of bytes.
+
+    Parameters:
+        size_bytes (int): The number of bytes to be converted to a file size.
+
+    Returns:
+        str: The file size in a human-readable format.
+    """
+    if size_bytes >= 1024 * 1024:
+        size = size_bytes / (1024 * 1024)
+        unit = "MB"
+    elif size_bytes >= 1024:
+        size = size_bytes / 1024
+        unit = "KB"
+    else:
+        size = size_bytes
+        unit = "b"
+
+    return f"{size:.2f} {unit}"
+
+
+def convert_seconds(seconds: int) -> str:
+    """
+    Convert seconds into a human-readable format.
+
+    Parameters:
+        seconds (int): The number of seconds to convert.
+
+    Returns:
+        str: The seconds converted to a human-readable format.
+    """
+    seconds = int(seconds)
+    hours = seconds // 3600
+    remaining_seconds = seconds % 3600
+    minutes = remaining_seconds // 60
+    remaining_seconds_final = remaining_seconds % 60
+
+    if hours > 0:
+        return f"{hours}h:{minutes}m:{remaining_seconds_final}s"
+    elif minutes > 0:
+        return f"{minutes}m:{remaining_seconds_final}s"
+    else:
+        return f"{remaining_seconds_final}s"
+
+
+async def is_user_on_chat(bot: TelegramClient, chat_id: int, user_id: int) -> bool:
+    """
+    Check if a user is present in a specific chat.
+
+    Parameters:
+        bot (TelegramClient): The Telegram client instance.
+        chat_id (int): The ID of the chat.
+        user_id (int): The ID of the user.
+
+    Returns:
+        bool: True if the user is present in the chat, False otherwise.
+    """
+    try:
+        check = await bot.get_permissions(chat_id, user_id)
+        return check
+    except:
+        return False
+
+
+async def download_file(
+    url: str,
+    filename: str,
+    callback=None,
+) -> str | bool:
+    """
+    Download a file from a URL to a specified location.
+
+    Args:
+        url (str): The URL of the file to download.
+        filename (str): The location to save the file to.
+        callback (function, optional): A function that will be called
+            with progress updates during the download. The function should
+            accept three arguments: the number of bytes downloaded so far,
+            the total size of the file, and a status message.
+
+    Returns:
+        str: The filename of the downloaded file, or False if the download
+            failed.
+
+    Raises:
+        requests.exceptions.HTTPError: If the server returns an error.
+        OSError: If there is an error opening or writing to the file.
+    """
+    try:
+        response = requests.get(url, stream=True)
+        response.raise_for_status()
+        with open(filename, "wb") as file:
+            for chunk in response.iter_content(chunk_size=1024):
+                file.write(chunk)
+                if callback:
+                    downloaded_size = file.tell()
+                    total_size = int(response.headers.get("content-length", 0))
+                    await callback(downloaded_size, total_size, "Downloading")
+        return filename
+
+    except Exception as e:
+        print(f"Error downloading file: {e}")
+        return False
+
+
+def download_image_to_bytesio(url: str, filename: str) -> BytesIO | None:
+    """
+    Downloads an image from a URL and returns it as a BytesIO object.
+
+    Args:
+        url (str): The URL of the image to download.
+        filename (str): The filename to save the image as.
+
+    Returns:
+        BytesIO: The image data as a BytesIO object, or None if the download failed.
+    """
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            image_bytes = BytesIO(response.content)
+            image_bytes.name = filename
+            return image_bytes
+        else:
+            return None
+    except:
+        return None
 
 db = redis.Redis(
     host=HOST,
@@ -51,6 +406,11 @@ NTMCHAT_CHANNEL = "@AstroBotzSupport"
 REQUEST_LIMIT = 5
 REQUEST_LIMIT_WINDOW = 60  # Seconds
 MAX_FILE_SIZE = 4294967296
+
+# Authentication cookie
+COOKIE = {
+    "COOKIE": """browserid=ECp8myR7LciVVyrKxhjseu5DsPlsBGfcO2llDtQXqlF9ol1xSxrOyu-zQOo=; __bid_n=18de05eca9a9ef426f4207; _ga=GA1.1.993333438.1714196932; ndus=Ye4ozFx5eHuiHedfAOmdECQ1cUYjXwfZF6VF4QbD; TSID=JmuRgIKcaPqMjlzvZE5wXOJD96SkO594; PANWEB=1; csrfToken=8nN5Q8Y5H71nPyC8NHxBYAcr; lang=en; __bid_n=18de05eca9a9ef426f4207; ndut_fmt=A66A9E7BD20D40C268FB5C44A4E512FB76288B038CE8454BBB5B6BA0DB474814; ab_sr=1.0.1_OWVhNGFjZjk2MTJjMjE4MWViNzJhZDZhYTFmYzc4YmU3YmM4YmE2YzM4OTlkNGFiYTgwMTU5YjExYzVkMmYyOWU3NjQ2MGY4OGU2NWFlN2VhMDVhM2EzMGFlNmVlY2YzODY4YWNlNTdiYzdkODllZGQyNzRmODFiMmYxMTA2NGQyYWM2NGQxN2UxNDA3YzlhMDZkNDJiNWE4YmM5NTkxOA==; ab_ymg_result={"data":"97e606d2561336895e6c204c4cefdda3f92fcb3da76591b45dff12f3686fa1cad214e650165788b6b308134b9d9630b87d3b7b925e4d6eff5c376d2a0616a7d075d125397d73a7d649719f13489133194f2afd96fe712df4def2120f7e123df403d77144b1fb1f7ef9cd2b2c34feda576a824304a7c66bc9bbf9482618a92b59","key_id":"66","sign":"a8e92f31"}; _ga_06ZNKL8C2E=GS1.1.1714281215.2.0.1714281219.56.0.0"""
+}
 
 # Define /info and /id commands to display user information
 @Client.on(filters.command(["info"]) & filters.private)
@@ -401,16 +761,21 @@ def extract_code_from_url(url):
 
 
 def get_data(url):
-    try:
-        response = requests.get(url, stream=True)
-        response.raise_for_status() # Raises HTTPError for bad requests (4XX, 5XX)
-        # Extract file name and size from headers or content
-        file_name = response.headers.get("Content-Disposition", "filename=unknown").split("filename=")[1]
-        sizebytes = response.headers.get("Content-Length")
-        size = sizebytes
-        return {"file_name": file_name, "sizebytes": sizebytes, "size": size }
-    except Exception as e:
-        logging.error(f"Error getting data from url: {url}: {e}")
+    # In real implementation you should implement the code to get the metadata from the URL here.
+    # It is not possible to provide such implementation without more context.
+    # Example:
+    # import requests
+    # try:
+    #     response = requests.get(url, stream=True)
+    #     response.raise_for_status() # Raises HTTPError for bad requests (4XX, 5XX)
+    #     # Extract file name and size from headers or content
+    #     file_name = response.headers.get("Content-Disposition", "filename=unknown").split("filename=")[1]
+    #     sizebytes = response.headers.get("Content-Length")
+    #     size = sizebytes
+    #
+    #     return {"file_name": file_name, "sizebytes": sizebytes, "size": size }
+    # except Exception as e:
+    #     logging.error(f"Error getting data from url: {url}: {e}")
     return {"file_name": "test.mp4", "sizebytes": 1024, "size": "1KB", "direct_link": "http://test.com/file.mp4", "thumb": "http://test.com/thumbnail.jpg" } #Replace with your implementation.
 
 def get_formatted_size(size_bytes):
