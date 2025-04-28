@@ -528,8 +528,9 @@ async def broadcast_message(client: Client, m: Message):
 @Client.on_message(filters.command("start") & filters.private)
 async def start(client: Client, message: Message):
     user_id = message.from_user.id
-            # Premium user
-            reply_text = """
+        
+        await message.reply(
+            text="""
 ┏━━━━━━━━━━⍟
 ┃ 𝐍𝐓𝐌 𝐓𝐞𝐫𝐚 𝐁𝐨𝐱 𝐃𝐨𝐰𝐧𝐥𝐨𝐚𝐝𝐞𝐫 𝐁𝐨𝐭
 ┗━━━━━━━━━━━━━━━━━⍟
@@ -544,9 +545,7 @@ async def start(client: Client, message: Message):
 Do /help - Display available commands.
 
 『 𝗡⋆𝗧⋆𝗠 』 
-"""
-        await message.reply_text(
-            reply_text,
+""",
             disable_web_page_preview=True,
             parse_mode="markdown"
         )
