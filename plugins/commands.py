@@ -528,19 +528,6 @@ async def broadcast_message(client: Client, m: Message):
 @Client.on_message(filters.command("start") & filters.private)
 async def start(client: Client, message: Message):
     user_id = message.from_user.id
-    try:
-        user = await client.get_users(user_id)  # Use client.get_users
-        name = user.first_name
-        username = user.username if user.username else "-"
-
-        admin_message = f"User started the bot:\nName: {name}\nUsername: @{username}\nUser ID: {user_id}"
-        for admin_id in ADMINS:
-            try:
-                await client.send_message(admin_id, admin_message)
-            except Exception as e:
-                print(f"Error sending admin message to {admin_id}: {e}")
-
-        if db.sismember(PREMIUM_USERS_KEY, user_id):
             # Premium user
             reply_text = """
 ┏━━━━━━━━━━⍟
@@ -557,24 +544,6 @@ async def start(client: Client, message: Message):
 Do /help - Display available commands.
 
 『 𝗡⋆𝗧⋆𝗠 』 
-"""
-        else:
-            # Free user
-            reply_text = """
-┏━━━━━━━━━━⍟
-┃ 𝐅𝐑𝐄𝐄 𝐔𝐒𝐄𝐑 
-┗━━━━━━━━━━━━━━━━━⍟
-╔══════════⍟ 
-┃ As a free user, 
-┃ you're not approved to access the full capabilities of this bot.
-┃
-┃ Upgrade to premium or utilize.
-┃
-┃ /cmds, or /help to view available cmds 
-┃ /id or /info - To check your details
-┃ /plan - To check availabe plan 
-╚═════════════════⍟
-For subscription inquiries, contact @abdul97233.
 """
         await message.reply_text(
             reply_text,
