@@ -62,7 +62,7 @@ class Bot(Client):
             api_hash=API_HASH,
             api_id=API_ID,
             plugins={
-                "root": "bot/plugins"
+                "root": "plugins"
             },
             workers=200,
             bot_token=BOT_TOKEN,
